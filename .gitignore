@@ -1,0 +1,51 @@
+# SpeakNotType .gitignore
+
+# === 大型二进制 / 模型文件（让用户自己下载） ===
+# whisper.cpp 二进制
+whisper/whisper-cli.exe
+whisper/Release/
+whisper/cuda/
+whisper/*.dll
+whisper/*.exe
+
+# 模型权重
+whisper/models/
+whisper/models-ct2/
+
+# 主程序 exe（用户从 Releases 下载）
+SpeakNotType.exe
+SpeakNotType-*.exe
+
+# === 临时与运行时产物 ===
+logs/
+*.wav
+*.mp3
+!tests/*.wav
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.venv
+venv/
+env/
+*.spec
+
+# === 构建产物 ===
+dist/
+build/
+*.egg-info/
+
+# === IDE / 系统 ===
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
+
+# === 用户私人配置（用户应该从 config.example.toml 复制） ===
+config.toml

@@ -1,0 +1,49 @@
+# SpeakNotType 配置文件
+# 复制此文件为 config.toml 后修改
+
+[general]
+# 全局热键（keyboard 库格式）
+# 常用按键: "ctrl+`"、"ctrl+space"、"alt+v"、"caps lock"
+# 反引号在 keyboard 库里要写 "grave"
+hotkey = "ctrl+`"
+
+# 识别语言: auto / zh / en
+language = "auto"
+
+# 触发模式:
+#   push-to-talk = 按住说话，松开转录
+#   toggle       = 按一次开始，再按一次结束
+mode = "push-to-talk"
+
+
+[engine]
+# 后端选择:
+#   auto           = 自动选择最优（GPU 优先）
+#   faster-whisper = CTranslate2 后端，支持 GPU（最快，需 NVIDIA 卡）
+#   whisper-cpp    = whisper.cpp CLI（每次加载模型，省内存）
+#   whisper-server = whisper.cpp HTTP 服务（模型常驻，CPU 模式更快）
+backend = "auto"
+
+# 模型名称:
+#   faster-whisper:  small / medium / large-v3 / large-v3-turbo
+#   whisper.cpp:     tiny / base / small / medium / large-v3-turbo
+# 启动器会自动检测本地已下载的模型
+model = "medium"
+
+
+[output]
+# 是否自动粘贴到光标位置（否则只复制到剪贴板）
+auto_paste = true
+
+
+[recording]
+# 录音参数（一般不需要改）
+sample_rate = 16000
+format = "wav"
+temp_dir = ""  # 留空使用系统临时目录
+
+
+[server]
+# 仅在 backend = whisper-server 时生效
+threads = 0  # 0 = 自动根据 CPU 核数
+vad = false  # 静音裁剪（实验性，部分配置下会报错）

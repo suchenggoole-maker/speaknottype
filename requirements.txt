@@ -1,0 +1,26 @@
+# SpeakNotType - Python 依赖
+# 安装: pip install -r requirements.txt
+
+# === 核心依赖 ===
+sounddevice>=0.4.6          # 录音
+soundfile>=0.12.1           # WAV 文件读写
+numpy>=1.24.0               # 音频数组处理
+keyboard>=0.13.5            # 全局热键监听
+pyperclip>=1.8.2            # 剪贴板操作
+pystray>=0.19.4             # 系统托盘
+Pillow>=10.0.0              # 托盘图标生成
+requests>=2.31.0            # 下载模型
+
+# Python 3.10 还需要 tomli，3.11+ 已内置
+tomli>=2.0.0 ; python_version < "3.11"
+
+# === 识别引擎（按需安装） ===
+# faster-whisper（推荐，支持 GPU）
+faster-whisper>=1.0.0
+ctranslate2>=4.0.0
+
+# 可选：Windows 内置语音识别后备
+# speechrecognition>=3.10.0
+
+# === 开发依赖（仅打包 .exe 时需要） ===
+# pyinstaller>=6.0.0
