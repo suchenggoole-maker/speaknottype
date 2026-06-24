@@ -1,5 +1,9 @@
 # SpeakNotType 🎤
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
+
 **全局语音输入工具** — 在任何应用中，按住热键说话，松手自动转文字并粘贴到光标位置。
 
 ```
