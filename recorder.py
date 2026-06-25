@@ -24,7 +24,7 @@ class Recorder:
         self._lock = threading.Lock()
 
     def start_recording(self):
-        """开始录音"""
+        """开始录音：只有按下热键后才打开麦克风流"""
         with self._lock:
             if self._recording:
                 return
@@ -40,6 +40,7 @@ class Recorder:
                 channels=1,
                 dtype="float32",
                 callback=callback,
+                blocksize=self.sample_rate // 50,  # 20ms，降低设备启动后的录音延迟
             )
             self._stream.start()
 
@@ -73,7 +74,6 @@ class Recorder:
         end_frame = min(n_frames, voice_frames[-1] + padding_ms // 10)
 
         trimmed = audio[start_frame * frame_len: end_frame * frame_len]
-        # 至少保留 min_silence_ms 的静音段延长
         return trimmed
 
     def stop_recording(self) -> str | None:
@@ -91,7 +91,6 @@ class Recorder:
             return None
 
         # 计算录音实际时长
-        import numpy as np
         audio = np.concatenate(self._audio_data, axis=0)
         duration_sec = len(audio) / self.sample_rate
 

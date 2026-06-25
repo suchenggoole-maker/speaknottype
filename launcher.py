@@ -15,7 +15,25 @@ else:
     PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PROJECT_ROOT)
 
+# faster-whisper / CTranslate2 在检测 CUDA 时需要找到 cuBLAS/cudart DLL。
+# 启动器也要加这段，否则从托盘打开设置页时可能报 DLL not found。
+_cuda_dll_dir = os.path.join(PROJECT_ROOT, "whisper", "Release")
+if os.path.isdir(_cuda_dll_dir):
+    os.environ["PATH"] = _cuda_dll_dir + os.pathsep + os.environ.get("PATH", "")
+    try:
+        os.add_dll_directory(_cuda_dll_dir)
+    except (AttributeError, OSError):
+        pass
+
 import config as cfg_module
+
+# 清理失效的 PyInstaller Tcl/Tk 环境变量。
+# 从托盘主程序打开 launcher.py 时，可能继承已经删除的 _MEIxxxx 临时目录，
+# 导致 tkinter 报 "Can't find a usable init.tcl"。
+for _tk_env in ("TCL_LIBRARY", "TK_LIBRARY"):
+    _tk_path = os.environ.get(_tk_env)
+    if _tk_path and not os.path.exists(_tk_path):
+        os.environ.pop(_tk_env, None)
 
 try:
     import tkinter as tk
@@ -67,14 +85,21 @@ def detect_env() -> dict:
     info["models"] = models
     info["ct2_models"] = ct2_models
 
-    # GPU detection
+    # GPU detection: use nvidia-smi instead of importing ctranslate2.
+    # Keeping launcher lightweight avoids PyInstaller onefile temp-dir cleanup issues.
     info["has_cuda"] = False
     info["gpu_name"] = ""
     try:
-        import ctranslate2
-        if ctranslate2.get_cuda_device_count() > 0:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            name = result.stdout.strip().splitlines()[0]
             info["has_cuda"] = True
-            info["gpu_name"] = f"CUDA ({ctranslate2.get_cuda_device_count()} 设备)"
+            info["gpu_name"] = name
     except Exception:
         pass
 
@@ -306,13 +331,7 @@ class Launcher:
         # Backend mode (server / CLI)
         row += 1
         ttk.Label(parent, text="引擎模式", width=10, anchor="e").grid(row=row, column=0, sticky="e", padx=(0, 8), pady=2)
-        # Check if CUDA is available for faster-whisper
-        has_cuda = False
-        try:
-            import ctranslate2
-            has_cuda = ctranslate2.get_cuda_device_count() > 0
-        except Exception:
-            pass
+        has_cuda = self.env.get("has_cuda", False)
         default_backend = "auto (faster-whisper GPU)" if has_cuda else "auto (server 优先)"
         self.backend_var = tk.StringVar(value=default_backend)
 
@@ -415,13 +434,28 @@ class Launcher:
         self.status_var.set("✅ 配置已保存，启动中...")
         self.root.update()
 
-        # 完全分离子进程，避免 PyInstaller 清理临时目录冲突
+        # 启动主程序：保持稳定架构，使用系统 Python 运行 main.py。
+        # 启动前只关闭旧的 speaknottype/main.py 实例，避免多个热键监听器互抢。
         main_py = os.path.join(PROJECT_ROOT, "main.py")
         python_exe = os.path.join(sys.base_exec_prefix, "python.exe")
         if not os.path.exists(python_exe):
             python_exe = "python"
+
         try:
             if sys.platform == "win32":
+                try:
+                    subprocess.run(
+                        ["powershell", "-NoProfile", "-Command",
+                         "Get-CimInstance Win32_Process | "
+                         "Where-Object { $_.CommandLine -match 'speaknottype' -and $_.CommandLine -match 'main.py' } | "
+                         "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                except Exception:
+                    pass
+
                 startup = subprocess.STARTUPINFO()
                 startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 subprocess.Popen(

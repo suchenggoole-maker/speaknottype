@@ -167,11 +167,51 @@ class FasterWhisperEngine:
                 device = "cpu"
                 compute_type = "int8"
         log.info(f"[FasterWhisper] Loading {self.model} on {device}/{compute_type}...")
+        self._device = device
+        self._compute_type = compute_type
         self._fw_model = WhisperModel(
             self._model_path,
             device=device,
             compute_type=compute_type,
         )
+        self._warmup()
+
+    def _warmup(self):
+        """Run a tiny inference once so CUDA kernels/cuBLAS are warmed up before first real use."""
+        try:
+            import os
+            import time
+            import tempfile
+            import numpy as np
+            import soundfile as sf
+
+            if self._device != "cuda":
+                return
+
+            t0 = time.monotonic()
+            # 1 second of very low-level noise works better than absolute silence
+            # for exercising the full language-detection/inference path.
+            sample_rate = 16000
+            audio = (np.random.rand(sample_rate).astype("float32") - 0.5) * 0.0005
+            warmup_path = os.path.join(tempfile.gettempdir(), "snt_warmup.wav")
+            sf.write(warmup_path, audio, sample_rate)
+
+            segments, _ = self._fw_model.transcribe(
+                warmup_path,
+                language="en",
+                beam_size=1,
+                vad_filter=False,
+            )
+            # Exhaust generator to force actual computation.
+            list(segments)
+            try:
+                os.remove(warmup_path)
+            except OSError:
+                pass
+            log.info(f"[FasterWhisper] GPU warmup completed in {(time.monotonic()-t0)*1000:.0f}ms")
+        except Exception as e:
+            # Warmup is an optimization only; never block normal use.
+            log.warning(f"[FasterWhisper] Warmup skipped: {e}")
 
     def transcribe(self, audio_path: str) -> str:
         from perf_timer import PerfTimer
@@ -182,6 +222,9 @@ class FasterWhisperEngine:
             audio_path,
             language=self.language if self.language != "auto" else None,
             beam_size=5,
+            # Whisper 的 prompt 不是 LLM 指令，而是“前文风格提示”。
+            # 用示例文本比“请...”指令更不容易泄露到输出里。
+            initial_prompt="你好，这是一个带有自然中文标点的转写示例。这里是 SpeakNotType，正在使用 Claude Code。",
         )
         text = " ".join(seg.text for seg in segments).strip()
 
@@ -295,5 +338,9 @@ def _detect_best_engine(server_manager=None) -> str:
     if os.path.exists(cli_path):
         return "whisper-cpp"
 
-    # 3. Default to windows-speech (zero config)
-    return "windows-speech"
+    # 3. No local engine available. Do NOT fall back to WindowsSpeech in packaged builds.
+    # It is less accurate, may require network services, and has PyInstaller packaging issues.
+    raise TranscriptionError(
+        "No local speech engine available. Install/download either faster-whisper model "
+        "under whisper/models-ct2/medium or whisper.cpp model under whisper/models/."
+    )

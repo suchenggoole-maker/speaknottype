@@ -5,6 +5,7 @@ import sys
 import os
 import threading
 import logging
+import subprocess
 
 # 获取项目根目录（兼容 PyInstaller 打包模式）
 if getattr(sys, 'frozen', False):
@@ -51,6 +52,44 @@ _tray_icon = None
 _server_manager = None
 _stream_pipeline = None
 _use_streaming = True  # 启用流水线模式
+_single_instance_handle = None
+
+
+def _acquire_single_instance_lock() -> bool:
+    """确保同一时间只有一个 SpeakNotType 主实例运行。
+
+    Windows: 使用全局 Mutex；如果已存在则退出，避免多个实例抢热键/麦克风。
+    非 Windows: 简单返回 True（后续跨平台时再补文件锁）。
+    """
+    global _single_instance_handle
+    if sys.platform != "win32":
+        return True
+
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+
+        name = "Global\\SpeakNotType_Main_Instance"
+        handle = kernel32.CreateMutexW(None, True, name)
+        if not handle:
+            log.warning("[WARN] Could not create single-instance mutex; continuing")
+            return True
+
+        ERROR_ALREADY_EXISTS = 183
+        if ctypes.get_last_error() == ERROR_ALREADY_EXISTS:
+            log.warning("[WARN] Another SpeakNotType instance is already running. Exiting.")
+            kernel32.CloseHandle(handle)
+            return False
+
+        _single_instance_handle = handle
+        return True
+    except Exception as e:
+        log.warning(f"[WARN] Single-instance lock failed: {e}; continuing")
+        return True
 
 
 def _shutdown_server():
@@ -266,6 +305,47 @@ def create_tray_icon():
     def on_open(icon, item):
         os.startfile(PROJECT_ROOT)
 
+    def on_open_settings(icon, item):
+        """Open launcher/settings, then exit current tray instance to avoid duplicates."""
+        try:
+            launcher_py = os.path.join(PROJECT_ROOT, "launcher.py")
+            launcher_exe = os.path.join(PROJECT_ROOT, "SpeakNotType.exe")
+
+            if os.path.exists(launcher_py):
+                # 从托盘打开设置时，优先用系统 Python 启动 launcher.py。
+                # 注意：必须清理 PyInstaller onefile 继承出来的 TCL_LIBRARY/TK_LIBRARY，
+                # 否则 tkinter 会去找已删除的 _MEIxxxx/init.tcl。
+                py_dir = os.path.dirname(sys.executable)
+                python_bin = os.path.join(py_dir, "python.exe")
+                if not os.path.exists(python_bin):
+                    python_bin = sys.executable
+
+                child_env = os.environ.copy()
+                for key in ("TCL_LIBRARY", "TK_LIBRARY"):
+                    path = child_env.get(key)
+                    if path and ("_MEI" in path or not os.path.exists(path)):
+                        child_env.pop(key, None)
+
+                launcher_log = os.path.join(PROJECT_ROOT, "logs", "launcher_settings.log")
+                os.makedirs(os.path.dirname(launcher_log), exist_ok=True)
+                with open(launcher_log, "a", encoding="utf-8") as lf:
+                    subprocess.Popen(
+                        [python_bin, launcher_py],
+                        cwd=PROJECT_ROOT,
+                        env=child_env,
+                        stdout=lf,
+                        stderr=lf,
+                        close_fds=True,
+                    )
+            elif os.path.exists(launcher_exe):
+                os.startfile(launcher_exe)
+        except Exception as e:
+            log.error(f"[ERR] Failed to open settings: {e}")
+        finally:
+            icon.stop()
+            _shutdown_server()
+            os._exit(0)
+
     hotkey_text = _cfg['general']['hotkey']
     model_text = _cfg['engine']['model']
     backend_text = _cfg['engine'].get('backend', 'auto')
@@ -279,6 +359,7 @@ def create_tray_icon():
             pystray.MenuItem(f"Hotkey: {hotkey_text}", None, enabled=False),
             pystray.MenuItem(f"Engine: {backend_text} ({model_text})", None, enabled=False),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem("Settings / Change model", on_open_settings),
             pystray.MenuItem("Open project folder", on_open),
             pystray.MenuItem("Exit", on_exit),
         ),
@@ -307,6 +388,9 @@ def update_tray_icon(state: str):
 
 def main():
     global _recorder, _engine, _cfg, _tray_icon, _server_manager, _stream_pipeline
+
+    if not _acquire_single_instance_lock():
+        return
 
     _cfg = config.load_config()
     log.info("=" * 40)
